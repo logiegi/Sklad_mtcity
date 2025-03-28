@@ -7,7 +7,7 @@ from keyboards import (
     get_equipment_kb, get_edan_product_kb
 )
 from sheets import update_stock, history_sheet, archive_history, preloaded_data, edan_sheet, getein_sheet
-from utils import log_time
+from utils import log_time, extract_gem_info, process_image
 from enum import IntEnum
 from datetime import datetime
 
@@ -177,9 +177,50 @@ async def handle_gem(message: types.Message):
     if message.text in GEMS:
         data[message.chat.id]["gem"] = message.text
         state[message.chat.id] = States.WAITING_TESTS
-        await message.reply("Сколько тестов?", reply_markup=get_test_kb())
+        if data[message.chat.id].get("operation") == "add":
+            await message.reply("Сколько тестов? (или отправьте фото картриджа)", reply_markup=get_test_kb())
+        else:
+            await message.reply("Сколько тестов?", reply_markup=get_test_kb())
     else:
         await message.reply("Выберите из списка.", reply_markup=get_gem_kb())
+
+# Обработчик фото для OCR (только при добавлении GEM)
+@dp.message(F.photo & (lambda m: state.get(m.chat.id) == States.WAITING_TESTS) & (lambda m: data.get(m.chat.id, {}).get("operation") == "add"))
+@log_time
+async def handle_photo(message: types.Message):
+    """Обрабатывает фото картриджа с помощью OCR."""
+    photo = message.photo[-1]  # Берем самое большое изображение
+    file = await message.bot.get_file(photo.file_id)
+    image_bytes = await message.bot.download_file(file.file_path)
+    ocr_text = await process_image(image_bytes.read())
+    gem, expiry, tests = extract_gem_info(ocr_text)
+
+    # Проверка распознанных данных
+    from config import GEMS, TESTS
+    errors = []
+    if gem not in GEMS:
+        errors.append(f"Модель GEM ({gem}) не распознана или некорректна.")
+    if tests not in TESTS:
+        errors.append(f"Количество тестов ({tests}) не распознано или некорректно.")
+    if not expiry:
+        errors.append("Срок годности не распознан.")
+
+    if errors:
+        await message.reply(
+            "Не удалось распознать данные с фото:\n" + "\n".join(errors) +
+            "\nПожалуйста, введите данные вручную.\nСколько тестов?",
+            reply_markup=get_test_kb()
+        )
+        return
+
+    data[message.chat.id]["gem"] = gem
+    data[message.chat.id]["tests"] = tests
+    data[message.chat.id]["expiry"] = expiry
+    state[message.chat.id] = States.WAITING_QUANTITY
+    await message.reply(
+        f"Распознано: GEM {gem}, {tests} тестов, срок {expiry}.\nСколько картриджей добавить?",
+        reply_markup=types.ReplyKeyboardRemove()
+    )
 
 # Обработчик выбора количества тестов
 @dp.message(lambda m: state.get(m.chat.id) == States.WAITING_TESTS)
@@ -204,12 +245,12 @@ async def handle_tests(message: types.Message):
                     expiry_kb.append([types.KeyboardButton(text=f"{date} ({qty} шт.)")])
             except ValueError:
                 continue
-        if not expiry_kb:
+        if not expiry_kb and data[message.chat.id].get("operation") == "issue":
             await message.reply("Нет доступных картриджей с таким количеством тестов.", reply_markup=get_test_kb())
             return
-        expiry_kb.append([types.KeyboardButton(text="Назад")])
+        expiry_kb.append([types.KeyboardButton(text="Ввести вручную" if data[message.chat.id].get("operation") == "add" else "Назад")])
         state[message.chat.id] = States.WAITING_EXPIRY
-        await message.reply("Выберите срок годности:", reply_markup=types.ReplyKeyboardMarkup(
+        await message.reply("Выберите срок годности:" if data[message.chat.id].get("operation") == "issue" else "Выберите или введите срок годности:", reply_markup=types.ReplyKeyboardMarkup(
             resize_keyboard=True, one_time_keyboard=True, keyboard=expiry_kb
         ))
     else:
@@ -225,6 +266,9 @@ async def handle_expiry(message: types.Message):
         state[message.chat.id] = States.WAITING_TESTS
         await message.reply("Сколько тестов?", reply_markup=get_test_kb())
         return
+    if message.text == "Ввести вручную" and data[message.chat.id].get("operation") == "add":
+        await message.reply("Введите срок годности (дд.мм.гггг):", reply_markup=types.ReplyKeyboardRemove())
+        return
     match = re.search(r"(\d{2}\.\d{2}\.\d{4}) \((\d+) шт.\)", message.text)
     if match:
         data[message.chat.id]["expiry"] = match.group(1)
@@ -237,8 +281,15 @@ async def handle_expiry(message: types.Message):
             f"{'(Доступно: ' + match.group(2) + ')' if operation == 'issue' else ''}",
             reply_markup=types.ReplyKeyboardRemove()
         )
+    elif re.match(r"^\d{2}\.\d{2}\.\d{4}$", message.text) and data[message.chat.id].get("operation") == "add":
+        data[message.chat.id]["expiry"] = message.text
+        state[message.chat.id] = States.WAITING_QUANTITY
+        await message.reply(
+            f"Сколько картриджей добавить GEM {data[message.chat.id]['gem']} {data[message.chat.id]['tests']} тестов со сроком {message.text}?",
+            reply_markup=types.ReplyKeyboardRemove()
+        )
     else:
-        await message.reply("Выберите корректный срок.")
+        await message.reply("Выберите корректный срок или введите в формате дд.мм.гггг.")
 
 # Обработчик ввода количества (выдача/добавление)
 @dp.message(lambda m: state.get(m.chat.id) == States.WAITING_QUANTITY)
