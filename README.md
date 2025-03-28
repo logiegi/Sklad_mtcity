@@ -1,4 +1,4 @@
-MedTechCity_BOT
+##MedTechCity_BOT
 📦 A powerful Telegram bot for efficient stock management in medical and tech environments, enhanced with computer vision.
 
 This bot simplifies inventory tracking by integrating with Google Sheets to manage stock data, including quantities, expiry dates, and operation history. It leverages computer vision through OCR (Optical Character Recognition) to automatically extract item details—like equipment model, expiry date, and test counts—from photos of medical cartridges. Built with aiogram for seamless Telegram interaction, it features an intuitive user interface with dynamic keyboards, state management, and data caching for optimal performance.
