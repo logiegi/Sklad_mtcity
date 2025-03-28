@@ -54,6 +54,31 @@ async def start_command(message: types.Message):
             resize_keyboard=True, one_time_keyboard=True
         ))
 
+@dp.message(Command("status"))
+@log_time
+async def status_command(message: types.Message):
+    """Показывает текущие остатки Gem-картриджей."""
+    if message.from_user.id not in ALLOWED_TELEGRAM_IDS:
+        await message.reply("Нет доступа. Поделитесь контактом.", reply_markup=types.ReplyKeyboardMarkup(
+            keyboard=[[types.KeyboardButton(text="Поделиться контактом", request_contact=True)]],
+            resize_keyboard=True, one_time_keyboard=True
+        ))
+        return
+    try:
+        status_msg = "Текущие остатки Gem-картриджей:\n"
+        for gem in ["3500", "4000", "5000"]:
+            status_msg += f"\nGEM {gem}:\n"
+            dates = preloaded_data.get(gem, {}).get("date", [])
+            for test in ["150", "300", "450", "600"]:
+                quantities = preloaded_data.get(gem, {}).get(test, [])
+                for date, qty in zip(dates, quantities):
+                    if date and qty and int(qty) > 0:
+                        status_msg += f"  - {test} тестов, срок {date}: {qty} шт.\n"
+        await message.reply(status_msg or "Склад пуст.")
+    except Exception as e:
+        logging.error(f"Error fetching status: {e}")
+        await message.reply("Ошибка при получении остатков.")
+
 # Обработчик контакта для авторизации
 @dp.message(F.content_type == "contact")
 @log_time
