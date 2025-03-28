@@ -1,10 +1,23 @@
-# Исключаем чувствительные файлы
-credentials.json
-
-# Исключаем временные файлы Python
-__pycache__/
-*.pyc
-
-# Исключаем виртуальное окружение (если используете)
+# Виртуальное окружение
 venv/
+.env/
+.venv/
+
+# PyCharm
+.idea/
+
+# Кэш Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Логи и временные файлы
+*.log
+*.tmp
+
+# Секреты
+credentials.json
 .env
+
+# Данные
+*.DS_Store
